@@ -4,6 +4,7 @@ import os, sys
 import yaml
 from argparse import ArgumentParser
 from tqdm import tqdm
+from pathlib import Path
 
 import imageio
 import numpy as np
@@ -63,7 +64,8 @@ def make_animation(source_image, driving_video, generator, kp_detector, relative
         driving = torch.tensor(np.array(driving_video)[np.newaxis].astype(np.float32)).permute(0, 4, 1, 2, 3)
         kp_source = kp_detector(source)
         kp_driving_initial = kp_detector(driving[:, :, 0])
-
+        driving_frames = []
+        driving_kps = [] 
         for frame_idx in tqdm(range(driving.shape[2])):
             driving_frame = driving[:, :, frame_idx]
             if not cpu:
@@ -73,9 +75,10 @@ def make_animation(source_image, driving_video, generator, kp_detector, relative
                                    kp_driving_initial=kp_driving_initial, use_relative_movement=relative,
                                    use_relative_jacobian=relative, adapt_movement_scale=adapt_movement_scale)
             out = generator(source, kp_source=kp_source, kp_driving=kp_norm)
-
+            # import ipdb; ipdb.set_trace() 
+            driving_frames.append(driving_frame.squeeze().permute(1, 2, 0).cpu().numpy())
             predictions.append(np.transpose(out['prediction'].data.cpu().numpy(), [0, 2, 3, 1])[0])
-    return predictions
+    return predictions, driving_frames
 
 def find_best_frame(source, driving, cpu=False):
     import face_alignment
@@ -121,6 +124,8 @@ if __name__ == "__main__":
                         help="Set frame to start from.")
  
     parser.add_argument("--cpu", dest="cpu", action="store_true", help="cpu mode.")
+    parser.add_argument('--frames', action='store_true', help='plot frames instead of videos')
+    parser.add_argument('--video', action='store_true', help='store video as well')
  
 
     parser.set_defaults(relative=False)
@@ -152,6 +157,19 @@ if __name__ == "__main__":
         predictions_backward = make_animation(source_image, driving_backward, generator, kp_detector, relative=opt.relative, adapt_movement_scale=opt.adapt_scale, cpu=opt.cpu)
         predictions = predictions_backward[::-1] + predictions_forward[1:]
     else:
-        predictions = make_animation(source_image, driving_video, generator, kp_detector, relative=opt.relative, adapt_movement_scale=opt.adapt_scale, cpu=opt.cpu)
-    imageio.mimsave(opt.result_video, [img_as_ubyte(frame) for frame in predictions], fps=fps)
+        predictions, driving_frames = make_animation(source_image, driving_video, generator, kp_detector, relative=opt.relative, adapt_movement_scale=opt.adapt_scale, cpu=opt.cpu)
+        if opt.frames:
+            save_dir = Path(opt.result_video).parent.absolute()
+            animation_path = os.path.join(save_dir, 'animation')
+            os.makedirs(animation_path, exist_ok=True) 
+            driving_path = os.path.join(save_dir, 'driving_frames')
+            os.makedirs(driving_path, exist_ok=True) 
+            for idx, frame in enumerate(predictions):
+                imageio.imwrite(os.path.join(animation_path, f"{idx:05d}.jpg"), img_as_ubyte(frame)) 
+            
+            for idx, frame in enumerate(driving_frames):
+                imageio.imwrite(os.path.join(driving_path, f"{idx:05d}.jpg"), img_as_ubyte(frame))
+
+    if opt.video:
+        imageio.mimsave(opt.result_video, [img_as_ubyte(frame) for frame in predictions], fps=fps)
 
