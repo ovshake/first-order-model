@@ -171,5 +171,7 @@ if __name__ == "__main__":
                 imageio.imwrite(os.path.join(driving_path, f"{idx:05d}.jpg"), img_as_ubyte(frame))
 
     if opt.video:
+        save_dir = os.path.dirname(opt.result_video)
+        os.makedirs(save_dir, exist_ok=True)
         imageio.mimsave(opt.result_video, [img_as_ubyte(frame) for frame in predictions], fps=fps)
 
